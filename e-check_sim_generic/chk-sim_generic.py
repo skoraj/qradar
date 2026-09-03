@@ -20,6 +20,7 @@ import csv
 import os
 import time
 from datetime import datetime
+from urllib.parse import quote
 
 import requests
 import urllib3
@@ -62,11 +63,13 @@ def _headers():
 
 
 def create_search():
-    url = "{}/api/ariel/searches".format(QRADAR_CONSOLE.rstrip("/"))
-    resp = requests.post(
-        url, headers=_headers(), params={"query_expression": AQL_QUERY},
-        verify=VERIFY_SSL, timeout=60,
+    # requests' params= dict encodes spaces as "+" (urlencode default), but
+    # QRadar's API expects "%20" and treats "+" as a literal character,
+    # which corrupts the AQL. Percent-encode it manually instead.
+    url = "{}/api/ariel/searches?query_expression={}".format(
+        QRADAR_CONSOLE.rstrip("/"), quote(AQL_QUERY, safe="")
     )
+    resp = requests.post(url, headers=_headers(), verify=VERIFY_SSL, timeout=60)
     resp.raise_for_status()
     data = resp.json()
     search_id = data.get("search_id") or data.get("cursor_id")
