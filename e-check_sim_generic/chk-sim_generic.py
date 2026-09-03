@@ -72,7 +72,10 @@ def create_search():
     headers["Content-Type"] = "application/x-www-form-urlencoded"
     body = "query_expression=" + quote(AQL_QUERY, safe="")
     resp = requests.post(url, headers=headers, data=body, verify=VERIFY_SSL, timeout=60)
-    resp.raise_for_status()
+    if not resp.ok:
+        raise RuntimeError(
+            "{} {} creating search: {}".format(resp.status_code, resp.reason, resp.text)
+        )
     data = resp.json()
     search_id = data.get("search_id") or data.get("cursor_id")
     if not search_id:
