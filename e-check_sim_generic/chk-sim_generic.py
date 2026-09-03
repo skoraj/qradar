@@ -63,13 +63,15 @@ def _headers():
 
 
 def create_search():
-    # requests' params= dict encodes spaces as "+" (urlencode default), but
-    # QRadar's API expects "%20" and treats "+" as a literal character,
-    # which corrupts the AQL. Percent-encode it manually instead.
-    url = "{}/api/ariel/searches?query_expression={}".format(
-        QRADAR_CONSOLE.rstrip("/"), quote(AQL_QUERY, safe="")
-    )
-    resp = requests.post(url, headers=_headers(), verify=VERIFY_SSL, timeout=60)
+    # QRadar's Ariel API does not reliably URL-decode query_expression when
+    # passed as a URL query string (neither "+" nor "%20" get decoded).
+    # Send it as an application/x-www-form-urlencoded POST body instead,
+    # where decoding is unambiguous.
+    url = "{}/api/ariel/searches".format(QRADAR_CONSOLE.rstrip("/"))
+    headers = _headers()
+    headers["Content-Type"] = "application/x-www-form-urlencoded"
+    body = "query_expression=" + quote(AQL_QUERY, safe="")
+    resp = requests.post(url, headers=headers, data=body, verify=VERIFY_SSL, timeout=60)
     resp.raise_for_status()
     data = resp.json()
     search_id = data.get("search_id") or data.get("cursor_id")
