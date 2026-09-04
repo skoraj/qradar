@@ -43,10 +43,10 @@ SEARCH_POLL_INTERVAL_SECONDS = 5  # extra poll interval if not done after the in
 SEARCH_POLL_TIMEOUT_SECONDS = 300 # additional time to allow beyond the initial wait
 
 AQL_QUERY = (
-    'SELECT "Log Source Identifier" AS ls_identifier, COUNT(*) AS event_count '
+    'SELECT "logsourceidentifier" AS ls_identifier, COUNT(*) AS event_count '
     "FROM events "
     "WHERE devicetype = {type_id} "
-    'GROUP BY "Log Source Identifier" '
+    'GROUP BY "ls_identifier" '
     "LAST 24 HOURS"
 ).format(type_id=LOG_SOURCE_TYPE_ID)
 
