@@ -103,7 +103,7 @@ def print_menu():
     )
     print(
         "  2 - Add Linux log sources (IP as identifier) from a CSV of IPs "
-        "(template log source {})".format(add_linux_log_sources.TEMPLATE_LOG_SOURCE_ID)
+        "(template: {})".format(add_linux_log_sources.TEMPLATE_FILE.name)
     )
     print("  0 - Delete data file(s) created in this session")
     print("  q - Quit")

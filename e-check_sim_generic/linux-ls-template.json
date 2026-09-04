@@ -1,0 +1,34 @@
+{
+	"sending_ip": null,
+	"internal": false,
+	"protocol_parameters": [
+		{
+			"name": "identifier",
+			"id": 0,
+			"value": "-logsourceidentifier-"
+		},
+		{
+			"name": "incomingPayloadEncoding",
+			"id": 1,
+			"value": "UTF-8"
+		}
+	],
+	"description": "LinuxServer -hostname-",
+	"coalesce_events": true,
+	"enabled": false,
+	"parsing_order": 1,
+	"group_ids": [
+		0
+	],
+	"credibility": 5,
+	"id": 977172,
+	"store_event_payload": true,
+	"target_event_collector_id": 110,
+	"protocol_type_id": 0,
+	"language_id": 1,
+	"log_source_extension_id": null,
+	"name": "LinuxServer @ -ipaddress- [-hostname-]",
+	"type_id": 11,
+	"gateway": false,
+	"disconnected_log_collector_id": null
+}

@@ -4,43 +4,31 @@ Add Linux log sources (IP as log source identifier) from a CSV of IPs.
 For each IP in the CSV:
   - resolve its hostname via reverse DNS
   - if the (short) hostname starts with s<digit>slp, create a new log
-    source cloned from the template log source (TEMPLATE_LOG_SOURCE_ID),
-    with:
-      name       = "LinuxServer @ <ip> [<hostname>]"
-      identifier = <ip>
-    and every other field copied from the template as-is.
+    source from linux-ls-template.json, with the placeholders filled in:
+      -ipaddress-          -> the IP (also the log source identifier)
+      -hostname-           -> the resolved hostname
+      -logsourceidentifier- -> the IP (protocol_parameters "identifier" value)
+    every other field is copied from the template as-is. The template's
+    "id" (its own log source id) is dropped - QRadar assigns a new one.
 
 Runs on the RHEL host that has network/DNS access to the target IPs.
 """
 
 import csv
+import json
 import re
 import socket
+from pathlib import Path
 
 import requests
 
 DEBUG = "on"  # "on" or "off" - when "on", pause for Enter after each step
 
-TEMPLATE_LOG_SOURCE_ID = 977172
+TEMPLATE_FILE = Path(__file__).resolve().parent / "linux-ls-template.json"
 LOG_SOURCES_ENDPOINT = "/api/config/event_sources/log_source_management/log_sources"
 
 HOSTNAME_PATTERN = re.compile(r"^s\dslp", re.IGNORECASE)
 IP_PATTERN = re.compile(r"^\d{1,3}(?:\.\d{1,3}){3}$")
-
-# Fields present on a GET'd log source that must not be sent back when
-# creating a new one (server-generated / read-only). Adjust if your
-# QRadar version's schema differs.
-STRIP_FIELDS = (
-    "id",
-    "creation_date",
-    "modification_date",
-    "last_event_time",
-    "status",
-    "auto_discovered",
-    "average_eps",
-    "internal",
-    "requires_deploy",
-)
 
 
 def debug_step(message):
@@ -84,33 +72,28 @@ def resolve_hostname(ip):
     return fqdn.split(".")[0]
 
 
-def get_template_log_source(console, token, api_version, verify_ssl):
-    url = "{}{}/{}".format(console.rstrip("/"), LOG_SOURCES_ENDPOINT, TEMPLATE_LOG_SOURCE_ID)
-    resp = requests.get(url, headers=_headers(token, api_version), verify=verify_ssl, timeout=60)
-    if not resp.ok:
-        raise RuntimeError(
-            "{} {} fetching template log source {}: {}".format(
-                resp.status_code, resp.reason, TEMPLATE_LOG_SOURCE_ID, resp.text
-            )
-        )
-    return resp.json()
+def load_template():
+    with open(TEMPLATE_FILE, encoding="utf-8") as f:
+        return json.load(f)
 
 
 def build_new_log_source(template, ip, hostname):
-    payload = dict(template)
-    for field in STRIP_FIELDS:
-        payload.pop(field, None)
+    payload = json.loads(json.dumps(template))  # deep copy
+    payload.pop("id", None)  # server-generated; QRadar assigns a new one
 
-    # Per-parameter ids are specific to the template's stored rows; a new
-    # log source needs fresh ones assigned by QRadar.
-    if isinstance(payload.get("protocol_parameters"), list):
-        payload["protocol_parameters"] = [
-            {k: v for k, v in param.items() if k != "id"}
-            for param in payload["protocol_parameters"]
-        ]
+    def substitute(value):
+        if isinstance(value, str):
+            return value.replace("-ipaddress-", ip).replace(
+                "-hostname-", hostname
+            ).replace("-logsourceidentifier-", ip)
+        return value
 
-    payload["name"] = "LinuxServer @ {} [{}]".format(ip, hostname)
-    payload["identifier"] = ip
+    payload["name"] = substitute(payload.get("name", ""))
+    payload["description"] = substitute(payload.get("description", ""))
+
+    for param in payload.get("protocol_parameters", []):
+        param["value"] = substitute(param.get("value"))
+
     return payload
 
 
@@ -134,11 +117,11 @@ def add_linux_log_sources_from_csv(console, token, api_version, verify_ssl, csv_
     if not ips:
         return
 
-    debug_step("Fetching template log source {}...".format(TEMPLATE_LOG_SOURCE_ID))
+    debug_step("Loading template from {}...".format(TEMPLATE_FILE))
     try:
-        template = get_template_log_source(console, token, api_version, verify_ssl)
-    except (requests.RequestException, RuntimeError) as exc:
-        print("ERROR: {}".format(exc))
+        template = load_template()
+    except (OSError, json.JSONDecodeError) as exc:
+        print("ERROR: could not load template {}: {}".format(TEMPLATE_FILE, exc))
         return
 
     created, skipped, failed = 0, 0, 0
@@ -160,7 +143,12 @@ def add_linux_log_sources_from_csv(console, token, api_version, verify_ssl, csv_
         payload = build_new_log_source(template, ip, hostname)
         debug_step(
             "  {}: hostname {!r} matches. Will create log source "
-            "name={!r} identifier={!r}".format(ip, hostname, payload["name"], payload["identifier"])
+            "name={!r} identifier={!r}".format(
+                ip, hostname, payload["name"], next(
+                    (p["value"] for p in payload["protocol_parameters"] if p["name"] == "identifier"),
+                    None,
+                )
+            )
         )
 
         try:
