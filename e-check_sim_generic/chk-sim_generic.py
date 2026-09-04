@@ -23,6 +23,7 @@ import os
 import sys
 from pathlib import Path
 
+import requests
 import urllib3
 
 import ariel_search
@@ -61,6 +62,11 @@ QRADAR_CONSOLE, QRADAR_TOKEN, API_VERSION = load_config()
 
 VERIFY_SSL = False  # SSL certificate checking is disabled
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+# On some environments (e.g. old requests versions with a vendored,
+# separate copy of urllib3 at requests.packages.urllib3), the above call
+# doesn't reach the module requests actually uses internally - disable it
+# there too.
+requests.packages.urllib3.disable_warnings(requests.packages.urllib3.exceptions.InsecureRequestWarning)
 
 # Files created by this script during the current run (for menu option 0).
 created_files = []

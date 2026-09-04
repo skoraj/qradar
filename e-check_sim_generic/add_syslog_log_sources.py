@@ -45,7 +45,7 @@ def build_payload_check_aql(ip):
         "SELECT COUNT(*) AS event_count "
         "FROM events "
         "WHERE \"logsourceidentifier\" = '{ip}' "
-        "AND UTF8(payload) MATCHES '{regex}' "
+        "AND UTF8(payload) IMATCHES '{regex}' "
         "LAST {minutes} MINUTES"
     ).format(ip=ip, regex=PAYLOAD_REGEX, minutes=SEARCH_MINUTES)
 
