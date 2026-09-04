@@ -27,6 +27,7 @@ import urllib3
 
 import ariel_search
 import add_linux_log_sources
+import add_syslog_log_sources
 
 CONFIG_FILE = Path(__file__).resolve().parent / "chk-sim_generic.cfg"
 
@@ -81,6 +82,16 @@ def run_add_linux_log_sources():
     )
 
 
+def run_add_syslog_log_sources():
+    csv_path = input("Path to CSV with IPs: ").strip()
+    if not csv_path:
+        print("No CSV path given.")
+        return
+    add_syslog_log_sources.add_syslog_log_sources_from_csv(
+        QRADAR_CONSOLE, QRADAR_TOKEN, API_VERSION, VERIFY_SSL, csv_path
+    )
+
+
 def delete_session_files():
     if not created_files:
         print("No data files have been created in this session yet.")
@@ -105,6 +116,10 @@ def print_menu():
         "  2 - Add Linux log sources (IP as identifier) from a CSV of IPs "
         "(template: {})".format(add_linux_log_sources.LINUX_LS_IP_IDENTIFIER_TEMPLATE.name)
     )
+    print(
+        "  3 - Add syslog Linux log sources (hostname not s<digit>slp, "
+        "confirmed by a {}-minute payload search)".format(add_syslog_log_sources.SEARCH_MINUTES)
+    )
     print("  0 - Delete data file(s) created in this session")
     print("  q - Quit")
 
@@ -118,6 +133,8 @@ def main():
             run_search_and_save()
         elif choice == "2":
             run_add_linux_log_sources()
+        elif choice == "3":
+            run_add_syslog_log_sources()
         elif choice == "0":
             delete_session_files()
         elif choice in ("q", "quit", "exit"):

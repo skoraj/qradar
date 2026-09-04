@@ -34,7 +34,7 @@ def _headers(token, api_version):
     }
 
 
-def create_search(console, token, api_version, verify_ssl):
+def create_search(console, token, api_version, verify_ssl, aql):
     # QRadar's Ariel API does not reliably URL-decode query_expression when
     # passed as a URL query string (neither "+" nor "%20" get decoded).
     # Send it as an application/x-www-form-urlencoded POST body instead,
@@ -42,7 +42,7 @@ def create_search(console, token, api_version, verify_ssl):
     url = "{}/api/ariel/searches".format(console.rstrip("/"))
     headers = _headers(token, api_version)
     headers["Content-Type"] = "application/x-www-form-urlencoded"
-    body = "query_expression=" + quote(AQL_QUERY, safe="")
+    body = "query_expression=" + quote(aql, safe="")
     resp = requests.post(url, headers=headers, data=body, verify=verify_ssl, timeout=60)
     if not resp.ok:
         raise RuntimeError(
@@ -119,7 +119,7 @@ def run_search_and_save(console, token, api_version, verify_ssl):
     print("AQL: {}".format(AQL_QUERY))
 
     try:
-        search_id = create_search(console, token, api_version, verify_ssl)
+        search_id = create_search(console, token, api_version, verify_ssl, AQL_QUERY)
         print("Search created: {}".format(search_id))
         wait_for_search(console, token, api_version, verify_ssl, search_id)
         events = fetch_search_results(console, token, api_version, verify_ssl, search_id)

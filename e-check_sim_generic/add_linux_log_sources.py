@@ -62,6 +62,19 @@ def read_ips_from_csv(csv_path):
     return ips
 
 
+def remove_ip_from_csv(csv_path, ip):
+    """Rewrite the CSV without any row that contains this IP as a cell."""
+    with open(csv_path, newline="", encoding="utf-8-sig") as f:
+        rows = list(csv.reader(f))
+
+    remaining = [row for row in rows if ip not in (c.strip() for c in row)]
+    if len(remaining) == len(rows):
+        return
+
+    with open(csv_path, "w", newline="", encoding="utf-8") as f:
+        csv.writer(f).writerows(remaining)
+
+
 def resolve_hostname(ip):
     """Reverse-DNS lookup. Returns the short hostname (before the first
     dot), or None if it doesn't resolve."""
@@ -155,6 +168,7 @@ def add_linux_log_sources_from_csv(console, token, api_version, verify_ssl, csv_
             create_log_source(console, token, api_version, verify_ssl, payload)
             print("  {}: log source created.".format(ip))
             created += 1
+            remove_ip_from_csv(csv_path, ip)
         except (requests.RequestException, RuntimeError) as exc:
             print("  {}: ERROR creating log source: {}".format(ip, exc))
             failed += 1
