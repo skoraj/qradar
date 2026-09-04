@@ -1,0 +1,4 @@
+[qradar]
+console = https://<your-console-hostname-or-ip>
+token = <your-api-token>
+api_version = 19.0

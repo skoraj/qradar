@@ -16,21 +16,51 @@ CONFIG
 Fill in QRADAR_CONSOLE and QRADAR_TOKEN below before running.
 """
 
+import configparser
 import csv
 import os
+import sys
 import time
 from datetime import datetime
+from pathlib import Path
 from urllib.parse import quote
 
 import requests
 import urllib3
 
 # =========================================================================
-# CONFIG - update these two values
+# CONFIG - connection settings are read from chk-sim_generic.cfg, next to
+# this script (see chk-sim_generic.cfg.example for the format).
 # =========================================================================
-QRADAR_CONSOLE = "https://<your-console-hostname-or-ip>"   # e.g. https://qradar.example.com
-QRADAR_TOKEN = "<your-api-token>"                            # SEC token from an authorized token
-API_VERSION = "19.0"
+CONFIG_FILE = Path(__file__).resolve().parent / "chk-sim_generic.cfg"
+
+
+def load_config():
+    if not CONFIG_FILE.exists():
+        sys.exit(
+            "ERROR: config file not found: {}\n"
+            "Copy chk-sim_generic.cfg.example to chk-sim_generic.cfg and fill in "
+            "your console address and API token.".format(CONFIG_FILE)
+        )
+
+    parser = configparser.ConfigParser()
+    parser.read(CONFIG_FILE, encoding="utf-8")
+
+    try:
+        section = parser["qradar"]
+        console = section["console"]
+        token = section["token"]
+    except KeyError as exc:
+        sys.exit("ERROR: {} is missing required key {} in [qradar] section.".format(CONFIG_FILE, exc))
+    api_version = section.get("api_version", "19.0")
+
+    if "<your-console" in console or "<your-api-token" in token:
+        sys.exit("ERROR: edit {} and set console/token before running.".format(CONFIG_FILE))
+
+    return console, token, api_version
+
+
+QRADAR_CONSOLE, QRADAR_TOKEN, API_VERSION = load_config()
 # =========================================================================
 
 VERIFY_SSL = False  # SSL certificate checking is disabled
@@ -136,10 +166,6 @@ def save_identifiers_csv(identifiers):
 
 
 def run_search_and_save():
-    if "your-console" in QRADAR_CONSOLE or "your-api-token" in QRADAR_TOKEN:
-        print("ERROR: set QRADAR_CONSOLE and QRADAR_TOKEN at the top of this script first.")
-        return
-
     print(
         "Starting search: log_source_type id={}, last 24 hours, "
         "grouped by Log Source Identifier".format(LOG_SOURCE_TYPE_ID)
