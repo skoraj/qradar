@@ -117,7 +117,7 @@ def build_new_log_source(template, ip, hostname):
 def create_log_source(console, token, api_version, verify_ssl, payload):
     url = "{}{}".format(console.rstrip("/"), LOG_SOURCES_ENDPOINT)
     resp = requests.post(
-        url, headers=_headers(token, api_version), json=[payload], verify=verify_ssl, timeout=60
+        url, headers=_headers(token, api_version), json=payload, verify=verify_ssl, timeout=60
     )
     if not resp.ok:
         raise RuntimeError(
