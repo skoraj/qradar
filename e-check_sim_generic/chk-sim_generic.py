@@ -89,7 +89,7 @@ def print_menu():
     print(
         "  1 - Run search (log_source_type id={}, last 24h) and save "
         "identifiers to CSV".format(ariel_search.LOG_SOURCE_TYPE_ID)
--    )
+    )
     print("  0 - Delete data file(s) created in this session")
     print("  q - Quit")
 
