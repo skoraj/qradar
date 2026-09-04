@@ -24,7 +24,7 @@ import requests
 
 DEBUG = "on"  # "on" or "off" - when "on", pause for Enter after each step
 
-TEMPLATE_FILE = Path(__file__).resolve().parent / "linux-ls-template.json"
+LINUX_LS_IP_IDENTIFIER_TEMPLATE = Path(__file__).resolve().parent / "linux-ls-template.json"
 LOG_SOURCES_ENDPOINT = "/api/config/event_sources/log_source_management/log_sources"
 
 HOSTNAME_PATTERN = re.compile(r"^s\dslp", re.IGNORECASE)
@@ -73,7 +73,7 @@ def resolve_hostname(ip):
 
 
 def load_template():
-    with open(TEMPLATE_FILE, encoding="utf-8") as f:
+    with open(LINUX_LS_IP_IDENTIFIER_TEMPLATE, encoding="utf-8") as f:
         return json.load(f)
 
 
@@ -117,11 +117,11 @@ def add_linux_log_sources_from_csv(console, token, api_version, verify_ssl, csv_
     if not ips:
         return
 
-    debug_step("Loading template from {}...".format(TEMPLATE_FILE))
+    debug_step("Loading template from {}...".format(LINUX_LS_IP_IDENTIFIER_TEMPLATE))
     try:
         template = load_template()
     except (OSError, json.JSONDecodeError) as exc:
-        print("ERROR: could not load template {}: {}".format(TEMPLATE_FILE, exc))
+        print("ERROR: could not load template {}: {}".format(LINUX_LS_IP_IDENTIFIER_TEMPLATE, exc))
         return
 
     created, skipped, failed = 0, 0, 0
