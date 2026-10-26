@@ -4,7 +4,11 @@ For every ls_registry.json entry (key = new log source identifier) that has a
 "sendingip" and is not yet "done":
   1. find the log source in log_sources_type11.json whose identifier == sendingip
   2. change that log source's identifier in QRadar to the entry key
-  3. mark the entry "update": "done"
+  3. if the log source name is "LinuxServer @ <sendingip> [<hostname>]" and
+     <hostname> differs from the entry key, rename it to
+     "LinuxServer @ <sendingip> [<entry key>]" in the same update;
+     a name "LinuxServer @ <sendingip>" (no brackets) gets " [<entry key>]" added
+  4. mark the entry "update": "done"
 
 Safety checks (entry is skipped, nothing changed):
   - sendingip holds more than one IP
@@ -24,6 +28,7 @@ Usage:
 import argparse
 import json
 import os
+import re
 import ssl
 import sys
 import time
@@ -83,6 +88,29 @@ def current_identifier(ls):
     for p in ls.get("protocol_parameters") or []:
         if p.get("name") == "identifier":
             return p.get("value")
+    return None
+
+
+NAME_RE = re.compile(r"^(?P<prefix>LinuxServer @ (?P<ip>\S+) \[)(?P<host>[^\]]*)(?P<suffix>\].*)$")
+
+
+NAME_NO_HOST_RE = re.compile(r"^(?P<prefix>LinuxServer @ (?P<ip>\S+))\s*$")
+
+
+def new_name_for(name, ip, new_identifier):
+    """
+    'LinuxServer @ <ip> [<host>]' with host != new_identifier -> host replaced
+    'LinuxServer @ <ip>'                                      -> ' [<new_identifier>]' added
+    anything else                                             -> None (no rename)
+    """
+    m = NAME_RE.match(name or "")
+    if m:
+        if m.group("ip") != ip or m.group("host") == new_identifier:
+            return None
+        return m.group("prefix") + new_identifier + m.group("suffix")
+    m = NAME_NO_HOST_RE.match(name or "")
+    if m and m.group("ip") == ip:
+        return "{} [{}]".format(m.group("prefix"), new_identifier)
     return None
 
 
@@ -169,6 +197,9 @@ def main():
         print("    log source id : {}".format(ls_id))
         print("    name          : {}".format(target.get("name")))
         print("    identifier    : {}  ->  {}".format(ip, new_identifier))
+        planned_name = new_name_for(target.get("name"), ip, new_identifier)
+        if planned_name:
+            print("    new name      : {}".format(planned_name))
 
         if args.dry_run:
             print("    (dry run, not changed)")
@@ -185,22 +216,34 @@ def main():
                 continue
             params = [dict(p, value=new_identifier) if p.get("name") == "identifier" else p
                       for p in ls["protocol_parameters"]]
-            api(args.host, token, ctx, "POST", "{}/{}".format(LS_PATH, ls_id),
-                body={"protocol_parameters": params})
-            check = current_identifier(get_log_source(args.host, token, ctx, ls_id))
+            body = {"protocol_parameters": params}
+            # Name is decided from the live QRadar name, not the export
+            old_name = ls.get("name")
+            new_name = new_name_for(old_name, ip, new_identifier)
+            if new_name != planned_name:
+                print("    name in QRadar is '{}', new name: {}".format(old_name, new_name or "unchanged"))
+            if new_name:
+                body["name"] = new_name
+            api(args.host, token, ctx, "POST", "{}/{}".format(LS_PATH, ls_id), body=body)
+            after = get_log_source(args.host, token, ctx, ls_id)
         except ApiError as e:
             print("    FAIL: {}".format(e))
             counts["failed"] += 1
             continue
+        check = current_identifier(after)
         if check != new_identifier:
             print("    FAIL: QRadar still reports identifier '{}'".format(check))
             counts["failed"] += 1
             continue
+        if new_name and after.get("name") != new_name:
+            print("    WARNING: identifier updated, but name in QRadar is '{}'".format(after.get("name")))
 
         print("    OK, updated")
         entry["update"] = "done"
         entry["previous_identifier"] = ip
-        entry["LS_updated"] = ls.get("name")
+        if new_name:
+            entry["previous_name"] = old_name
+        entry["LS_updated"] = after.get("name")
         entry["LS_updated_id"] = ls_id
         entry["updated_by"] = "sendingip"
         entry["updated"] = time.strftime("%Y-%m-%d %H:%M:%S")
