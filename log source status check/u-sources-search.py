@@ -32,6 +32,8 @@ QIDS = [4750017, 80250006, 18750001]
 EXCLUDE_IDENTIFIER_REGEX = r"^\d+\.\d+\.\d+\.\d+$"   # skip plain IPv4 identifiers
 # ------------------------------------------------------------------------------
 
+ID_PREFIX = "LS"   # IDs look like LS-0001
+
 API_VERSION = "19.0"
 PAGE_SIZE = 500
 POLL_SECONDS = 3
@@ -103,11 +105,39 @@ def run_aql(host, token, ctx, aql):
         start += PAGE_SIZE
 
 
+def save_json(path, data):
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=1, ensure_ascii=False)
+    os.replace(tmp, path)
+
+
+def load_registry(path):
+    """Registry: {identifier: {"id": "LS-0001", "first_seen": ..., "last_seen": ...}}"""
+    if not os.path.exists(path):
+        return {}
+    with open(path, encoding="utf-8") as f:
+        return json.load(f)
+
+
+def assign_id(registry, identifier, now):
+    entry = registry.get(identifier)
+    if entry is None:
+        used = [int(e["id"].split("-")[1]) for e in registry.values()]
+        entry = {"id": "{}-{:04d}".format(ID_PREFIX, max(used, default=0) + 1),
+                 "first_seen": now}
+        registry[identifier] = entry
+    entry["last_seen"] = now
+    return entry["id"]
+
+
 def main():
     ap = argparse.ArgumentParser(description="Search QRadar events grouped by log source identifier")
     ap.add_argument("--host", default=QRADAR_HOST, help="QRadar Console FQDN or IP")
     ap.add_argument("--minutes", type=int, default=15, help="time window (default 15)")
     ap.add_argument("--out", default="search_results.json", help="JSON output file")
+    ap.add_argument("--registry", default="ls_registry.json",
+                    help="file keeping the stable identifier -> ID mapping")
     ap.add_argument("--ca-file", help="CA bundle to verify the Console certificate "
                                       "(default: verification disabled)")
     args = ap.parse_args()
@@ -132,10 +162,16 @@ def main():
     rows = run_aql(args.host, token, ctx, aql)
     print("Search returned {} rows".format(len(rows)))
 
+    registry = load_registry(args.registry)
+    now = time.strftime("%Y-%m-%d %H:%M:%S")
+
     grouped = {}
     for r in rows:
         identifier = r.get("logsourceidentifier") or "<empty>"
-        g = grouped.setdefault(identifier, {"identifier": identifier,
+        if identifier not in grouped:
+            ls_id = assign_id(registry, identifier, now)
+        g = grouped.setdefault(identifier, {"ls_id": ls_id,
+                                            "identifier": identifier,
                                             "name": r.get("lsname"),
                                             "total": 0,
                                             "events": []})
@@ -149,15 +185,14 @@ def main():
     result = sorted(grouped.values(), key=lambda g: g["total"], reverse=True)
 
     for g in result:
-        print("\n{}  ({}, {} events)".format(g["identifier"], g["name"], g["total"]))
+        print("\n[{}] {}  ({}, {} events)".format(g["ls_id"], g["identifier"],
+                                                  g["name"], g["total"]))
         for e in g["events"]:
             print("    qid={:<10} {:<16} -> {:<16} x{}".format(
                 e["qid"], str(e["sourceip"]), str(e["destinationip"]), e["count"]))
 
-    tmp = args.out + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(result, f, indent=1, ensure_ascii=False)
-    os.replace(tmp, args.out)
+    save_json(args.out, result)
+    save_json(args.registry, registry)
     print("\n{} log source identifiers matched; saved to {}".format(len(result), args.out))
 
 
