@@ -22,7 +22,7 @@ import urllib.parse
 import urllib.request
 
 # ---- Connection settings: fill these in -------------------------------------
-QRADAR_HOST = "192.168.6.22"     # Console IP or FQDN
+QRADAR_HOST = ""     # Console IP or FQDN
 QRADAR_TOKEN = ""                # authorized service token (SEC)
 # ------------------------------------------------------------------------------
 
