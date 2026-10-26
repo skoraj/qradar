@@ -14,6 +14,10 @@ For every identifier in search_results.json, "update" is set to:
 Matched log sources are also stored in "update_targets" (id, name, ...)
 for the next step (updating / disabling them).
 
+"sendingip" is set for every entry (including "done") to the IP that appears
+as both sourceip and destinationip in the same event; if no such event is in
+the current results, the value from an earlier run is kept.
+
 Python 3.6 compatible, standard library only.
 
 Usage:
@@ -93,6 +97,17 @@ def main():
             print("WARNING: {} not in registry, skipped (run search_events.py first)"
                   .format(identifier), file=sys.stderr)
             continue
+
+        # sendingip: IPs seen as both sourceip and destinationip in one event.
+        # Set for every entry (also done); kept from earlier runs if none found now.
+        sending = sorted({e["sourceip"] for e in entry.get("events", [])
+                          if e.get("sourceip") and e["sourceip"] != "0.0.0.0"
+                          and e["sourceip"] == e.get("destinationip")})
+        if sending:
+            reg["sendingip"] = ", ".join(sending)
+            if len(sending) > 1:
+                print("WARNING: {} has several sending IPs: {}".format(
+                    identifier, reg["sendingip"]), file=sys.stderr)
 
         # Entries already marked done by hand are left exactly as they are
         if reg.get("update") == "done":
