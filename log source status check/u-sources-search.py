@@ -22,7 +22,7 @@ import urllib.parse
 import urllib.request
 
 # ---- Connection settings: fill these in -------------------------------------
-QRADAR_HOST = ""     # Console IP or FQDN
+QRADAR_HOST = "192.168.6.22"     # Console IP or FQDN
 QRADAR_TOKEN = ""                # authorized service token (SEC)
 # ------------------------------------------------------------------------------
 
@@ -30,6 +30,7 @@ QRADAR_TOKEN = ""                # authorized service token (SEC)
 LOG_SOURCE_TYPE_ID = 67
 QIDS = [4750017, 80250006, 18750001]
 EXCLUDE_IDENTIFIER_REGEX = r"^\d+\.\d+\.\d+\.\d+$"   # skip plain IPv4 identifiers
+SAME_SOURCE_DESTINATION = True   # only events where sourceip = destinationip
 # ------------------------------------------------------------------------------
 
 ID_PREFIX = "LS"   # IDs look like LS-0001
@@ -153,9 +154,12 @@ def main():
            "FROM events "
            "WHERE devicetype={type_id} AND ({qids}) "
            "AND NOT (logsourceidentifier MATCHES '{regex}') "
+           "{same_ip}"
            "GROUP BY logsourceidentifier, qid, sourceip, destinationip "
            "LAST {minutes} MINUTES").format(type_id=LOG_SOURCE_TYPE_ID, qids=qid_filter,
                                             regex=EXCLUDE_IDENTIFIER_REGEX,
+                                            same_ip=("AND sourceip = destinationip "
+                                                     if SAME_SOURCE_DESTINATION else ""),
                                             minutes=args.minutes)
     print("AQL: {}".format(aql))
 
