@@ -28,6 +28,7 @@ import re
 import ssl
 import sys
 import time
+import unicodedata
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -41,7 +42,15 @@ API_VERSION = "19.0"
 LS_PATH = "/api/config/event_sources/log_source_management/log_sources"
 
 # Literal [ ] around the hostname; extra spaces are tolerated, e.g. "[ host ]"
-NAME_RE = re.compile(r"^\s*(AIXServer|AIXAudit)\s*@\s*\S+\s*\[\s*(?P<host>[^\]\s]+)\s*\]\s*$")
+NAME_RE = re.compile(r"^\s*(AIXServer|AIXAudit)\s*@\s*\S+?\s*\[\s*(?P<host>[^\]\s]+)\s*\]\s*$",
+                     re.IGNORECASE)
+INVISIBLE_RE = re.compile("[​‌‍⁠﻿]")
+
+
+def normalize(text):
+    """Turn look-alike characters into plain ones: non-breaking spaces,
+    full-width brackets, zero-width characters."""
+    return INVISIBLE_RE.sub("", unicodedata.normalize("NFKC", text or ""))
 IP_RE = re.compile(r"^\d+\.\d+\.\d+\.\d+$")
 
 
@@ -140,9 +149,11 @@ def main():
     stop = False
     for ls in log_sources:
         name = ls.get("name") or ""
-        m = NAME_RE.match(name)
+        m = NAME_RE.match(normalize(name))
         if not m:
-            record(ls, "", "name format not matched")
+            # ascii() shows hidden characters, e.g. \xa0 or ​
+            record(ls, "", "name format not matched",
+                   ascii(name) if "aix" in name.lower() else "")
             continue
         hostname = m.group("host").strip()
         identifier = (ls.get("identifier") or "").strip()
