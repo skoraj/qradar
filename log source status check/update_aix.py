@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 """
-For log sources in log_sources_enabled.json named
-    "AIXServer @ <ip> [<hostname>]"  or  "AIXAudit @ <ip> [<hostname>]"
-if <hostname> is an entry (key) in ls_registry.json and the log source's
-identifier is an IPv4 address, change the identifier in QRadar to <hostname>.
+For every entry in ls_registry.json (key = hostname / new identifier):
+  1. find log sources in log_sources_enabled.json whose NAME contains the key
+     (case-insensitive, as a whole word: "psapap2" does not match "psapap20")
+  2. if that log source's identifier is an IPv4 address, change it in QRadar
+     to the key
 
 Safety checks (log source is skipped, nothing changed):
-  - another log source of the same type already has <hostname> as identifier
+  - the log source name contains more than one registry key
+  - another log source of the same type already has the key as identifier
     (or another one in this run would get it)
   - the identifier in QRadar is no longer the one in the export
 
@@ -41,21 +43,22 @@ QRADAR_TOKEN = ""                # authorized service token (SEC), needs write a
 API_VERSION = "19.0"
 LS_PATH = "/api/config/event_sources/log_source_management/log_sources"
 
-# Literal [ ] around the hostname; extra spaces are tolerated, e.g. "[ host ]"
-NAME_RE = re.compile(r"^\s*(AIXServer|AIXAudit)\s*@\s*\S+?\s*\[\s*(?P<host>[^\]\s]+)\s*\]\s*$",
-                     re.IGNORECASE)
-INVISIBLE_RE = re.compile("[​‌‍⁠﻿]")
-
-
-def normalize(text):
-    """Turn look-alike characters into plain ones: non-breaking spaces,
-    full-width brackets, zero-width characters."""
-    return INVISIBLE_RE.sub("", unicodedata.normalize("NFKC", text or ""))
 IP_RE = re.compile(r"^\d+\.\d+\.\d+\.\d+$")
+INVISIBLE_RE = re.compile("[​‌‍⁠﻿]")
 
 
 class ApiError(Exception):
     pass
+
+
+def normalize(text):
+    """Plain, lower-case text: removes look-alike and invisible characters."""
+    return INVISIBLE_RE.sub("", unicodedata.normalize("NFKC", text or "")).lower()
+
+
+def key_pattern(key):
+    # whole word: not directly preceded/followed by a letter, digit, _ . or -
+    return re.compile(r"(?<![\w.-]){}(?![\w.-])".format(re.escape(normalize(key))))
 
 
 def build_context(ca_file):
@@ -109,7 +112,7 @@ def load_json(path):
 
 
 def main():
-    ap = argparse.ArgumentParser(description="Set AIX log source identifiers to hostname")
+    ap = argparse.ArgumentParser(description="Set log source identifiers to registry hostnames")
     ap.add_argument("--log-sources", default="log_sources_enabled.json")
     ap.add_argument("--registry", default="ls_registry.json")
     ap.add_argument("--report", default="aix_update_report.csv")
@@ -128,6 +131,19 @@ def main():
     log_sources = load_json(args.log_sources)
     registry = load_json(args.registry)
 
+    # 1. which registry keys appear in which log source names
+    keys = sorted(registry)
+    patterns = [(k, key_pattern(k)) for k in keys]
+    keys_in_ls = {}                       # ls id -> [keys found in its name]
+    ls_for_key = {k: [] for k in keys}    # key -> [log sources]
+    for ls in log_sources:
+        name = normalize(ls.get("name"))
+        found = [k for k, p in patterns if p.search(name)]
+        if found:
+            keys_in_ls[ls.get("id")] = found
+            for k in found:
+                ls_for_key[k].append(ls)
+
     # identifiers already in use, per log source type
     used = {}
     for ls in log_sources:
@@ -141,85 +157,90 @@ def main():
     report = []
     counts = {}
 
-    def record(ls, hostname, result, note=""):
+    def record(key, ls, result, note=""):
         counts[result] = counts.get(result, 0) + 1
-        report.append([ls.get("id"), ls.get("type_id"), ls.get("name"),
-                       ls.get("identifier"), hostname, result, note])
+        ls = ls or {}
+        report.append([key, ls.get("id", ""), ls.get("type_id", ""), ls.get("name", ""),
+                       ls.get("identifier", ""), result, note])
 
+    # 2. process every registry key and its log sources
     stop = False
-    for ls in log_sources:
-        name = ls.get("name") or ""
-        m = NAME_RE.match(normalize(name))
-        if not m:
-            # ascii() shows hidden characters, e.g. \xa0 or ​
-            record(ls, "", "name format not matched",
-                   ascii(name) if "aix" in name.lower() else "")
-            continue
-        hostname = m.group("host").strip()
-        identifier = (ls.get("identifier") or "").strip()
-
-        if stop:
-            record(ls, hostname, "not processed (test mode)")
-            continue
-        if hostname not in registry:
-            record(ls, hostname, "hostname not in registry")
-            continue
-        if not IP_RE.match(identifier):
-            record(ls, hostname, "identifier not an IP",
-                   "already hostname" if identifier == hostname else "")
-            continue
-        type_used = used.setdefault(ls.get("type_id"), set())
-        if hostname in type_used:
-            print("[{}] {}: SKIP, identifier {} already used by another log source of type {}"
-                  .format(ls.get("id"), name, hostname, ls.get("type_id")))
-            record(ls, hostname, "skipped", "identifier already in use")
+    for key in keys:
+        if not ls_for_key[key]:
+            record(key, None, "no log source found")
             continue
 
-        print("\nlog source id : {}".format(ls.get("id")))
-        print("    name       : {}".format(name))
-        print("    identifier : {}  ->  {}".format(identifier, hostname))
+        for ls in ls_for_key[key]:
+            identifier = (ls.get("identifier") or "").strip()
+            name = ls.get("name")
 
-        if args.dry_run:
-            print("    (dry run, not changed)")
-            type_used.add(hostname)          # so a second one in this run is flagged
-            record(ls, hostname, "would change")
-            continue
-
-        try:
-            live = get_log_source(args.host, token, ctx, ls["id"])
-            if current_identifier(live) == hostname:   # e.g. changed by an earlier --test run
-                print("    already set in QRadar, nothing to do")
-                record(ls, hostname, "already changed")
+            if stop:
+                record(key, ls, "not processed (test mode)")
                 continue
-            if current_identifier(live) != identifier:
-                print("    SKIP: identifier in QRadar is now '{}' (re-run export_enabled_aix.py)"
-                      .format(current_identifier(live)))
-                record(ls, hostname, "skipped", "export out of date")
+            if len(keys_in_ls[ls.get("id")]) > 1:
+                record(key, ls, "skipped", "name contains several registry keys: "
+                       + ", ".join(keys_in_ls[ls.get("id")]))
                 continue
-            params = [dict(p, value=hostname) if p.get("name") == "identifier" else p
-                      for p in live["protocol_parameters"]]
-            api(args.host, token, ctx, "POST", "{}/{}".format(LS_PATH, ls["id"]),
-                body={"protocol_parameters": params})
-            check = current_identifier(get_log_source(args.host, token, ctx, ls["id"]))
-        except ApiError as e:
-            print("    FAIL: {}".format(e))
-            record(ls, hostname, "failed", str(e)[:300])
-            continue
-        if check != hostname:
-            print("    FAIL: QRadar still reports identifier '{}'".format(check))
-            record(ls, hostname, "failed", "identifier not changed")
-            continue
+            if identifier == key:
+                record(key, ls, "already set")
+                continue
+            if not IP_RE.match(identifier):
+                record(key, ls, "identifier not an IP")
+                continue
+            type_used = used.setdefault(ls.get("type_id"), set())
+            if key in type_used:
+                print("[{}] {}: SKIP, identifier {} already used by another log source of type {}"
+                      .format(ls.get("id"), name, key, ls.get("type_id")))
+                record(key, ls, "skipped", "identifier already in use")
+                continue
 
-        print("    OK, updated")
-        type_used.discard(identifier)
-        type_used.add(hostname)
-        record(ls, hostname, "changed", time.strftime("%Y-%m-%d %H:%M:%S"))
-        if args.test:
-            stop = True
+            print("\nlog source id : {}  (type {})".format(ls.get("id"), ls.get("type_id")))
+            print("    name       : {}".format(name))
+            print("    identifier : {}  ->  {}".format(identifier, key))
+
+            if args.dry_run:
+                print("    (dry run, not changed)")
+                type_used.add(key)            # so a second one in this run is flagged
+                record(key, ls, "would change")
+                continue
+
+            try:
+                live = get_log_source(args.host, token, ctx, ls["id"])
+                live_identifier = current_identifier(live)
+                if live_identifier == key:    # e.g. changed by an earlier --test run
+                    print("    already set in QRadar, nothing to do")
+                    record(key, ls, "already set")
+                    continue
+                if live_identifier != identifier:
+                    print("    SKIP: identifier in QRadar is now '{}' (re-run export_enabled_aix.py)"
+                          .format(live_identifier))
+                    record(key, ls, "skipped", "export out of date")
+                    continue
+                params = [dict(p, value=key) if p.get("name") == "identifier" else p
+                          for p in live["protocol_parameters"]]
+                api(args.host, token, ctx, "POST", "{}/{}".format(LS_PATH, ls["id"]),
+                    body={"protocol_parameters": params})
+                check = current_identifier(get_log_source(args.host, token, ctx, ls["id"]))
+            except ApiError as e:
+                print("    FAIL: {}".format(e))
+                record(key, ls, "failed", str(e)[:300])
+                continue
+            if check != key:
+                print("    FAIL: QRadar still reports identifier '{}'".format(check))
+                record(key, ls, "failed", "identifier not changed")
+                continue
+
+            print("    OK, updated")
+            type_used.discard(identifier)
+            type_used.add(key)
+            record(key, ls, "changed", time.strftime("%Y-%m-%d %H:%M:%S"))
+            if args.test:
+                stop = True
 
     with open(args.report, "w", newline="", encoding="utf-8") as f:
         w = csv.writer(f, delimiter=";")
-        w.writerow(["id", "type_id", "name", "old_identifier", "hostname", "result", "note"])
+        w.writerow(["registry_key", "ls_id", "type_id", "ls_name", "old_identifier",
+                    "result", "note"])
         w.writerows(report)
 
     print("\n" + "  ".join("{}: {}".format(k, v) for k, v in sorted(counts.items())))
