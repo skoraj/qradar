@@ -40,7 +40,8 @@ QRADAR_TOKEN = ""                # authorized service token (SEC), needs write a
 API_VERSION = "19.0"
 LS_PATH = "/api/config/event_sources/log_source_management/log_sources"
 
-NAME_RE = re.compile(r"^(AIXServer|AIXAudit) @ \S+ \[(?P<host>[^\]]+)\]\s*$")
+# Literal [ ] around the hostname; extra spaces are tolerated, e.g. "[ host ]"
+NAME_RE = re.compile(r"^\s*(AIXServer|AIXAudit)\s*@\s*\S+\s*\[\s*(?P<host>[^\]\s]+)\s*\]\s*$")
 IP_RE = re.compile(r"^\d+\.\d+\.\d+\.\d+$")
 
 
